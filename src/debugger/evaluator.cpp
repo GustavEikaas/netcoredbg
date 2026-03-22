@@ -778,8 +778,22 @@ static HRESULT InternalWalkMembers(EvalHelpers *pEvalHelpers, ICorDebugValue *pI
     if (className == "decimal") // TODO: implement mechanism for walking over custom type fields
         return S_OK;
 
-    if (className.back() == '?') // System.Nullable<T>, don't provide class member list.
+    if (className.back() == '?') // System.Nullable<T>
+    {
+        ToRelease<ICorDebugValue> pValueValue;
+        ToRelease<ICorDebugValue> pHasValueValue;
+        IfFailRet(GetNullableValue(pInputValue, &pValueValue, &pHasValueValue));
+
+        BYTE hasValueByte = 0;
+        ToRelease<ICorDebugGenericValue> pGenericValue;
+        IfFailRet(pHasValueValue->QueryInterface(IID_ICorDebugGenericValue, (LPVOID*)&pGenericValue));
+        IfFailRet(pGenericValue->GetValue((LPVOID)&hasValueByte));
+
+        if (hasValueByte != 0)
+            return InternalWalkMembers(pEvalHelpers, pValueValue, pThread, frameLevel, nullptr, provideSetterData, cb);
+
         return S_OK;
+    }
 
     CorElementType corElemType;
     IfFailRet(pType->GetType(&corElemType));
