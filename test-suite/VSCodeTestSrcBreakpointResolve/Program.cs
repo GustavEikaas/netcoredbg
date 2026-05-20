@@ -97,7 +97,7 @@ namespace NetcoreDbgTest.Script
             return ((LineBreakpoint)bp).NumLine;
         }
 
-        public void AddBreakpoint(string caller_trace, string bpName, string bpPath = null, string Condition = null, int? Column = null)
+        public void AddBreakpoint(string caller_trace, string bpName, string bpPath = null, string Condition = null, int? Column = 0)
         {
             Breakpoint bp = ControlInfo.Breakpoints[bpName];
             Assert.Equal(BreakpointType.Line, bp.Type, @"__FILE__:__LINE__"+"\n"+caller_trace);
@@ -236,13 +236,11 @@ namespace NetcoreDbgTest.Script
 
             StackTraceResponse stackTraceResponse =
                 JsonConvert.DeserializeObject<StackTraceResponse>(ret.ResponseStr);
+            var stackFrame = stackTraceResponse.body.stackFrames[0];
 
-            if (stackTraceResponse.body.stackFrames[0].line == bp_line
-                && stackTraceResponse.body.stackFrames[0].source.name == bp_fileName
-                && stackTraceResponse.body.stackFrames[0].column == expectedColumn)
-                return;
-
-            throw new ResultNotSuccessException(@"__FILE__:__LINE__"+"\n"+caller_trace);
+            Assert.Equal(bp_line, stackFrame.line, @"__FILE__:__LINE__"+"\n"+caller_trace);
+            Assert.Equal(bp_fileName, stackFrame.source.name, @"__FILE__:__LINE__"+"\n"+caller_trace);
+            Assert.Equal(expectedColumn, stackFrame.column, @"__FILE__:__LINE__"+"\n"+caller_trace);
         }
 
         public void WasBreakpointHitAtStartColumn(string caller_trace, string bpName, int expectedColumn)
@@ -268,13 +266,11 @@ namespace NetcoreDbgTest.Script
             Breakpoint breakpoint = ControlInfo.Breakpoints[bpName];
             var lbp = (LineBreakpoint)breakpoint;
             StackTraceResponse stackTraceResponse = JsonConvert.DeserializeObject<StackTraceResponse>(ret.ResponseStr);
+            var stackFrame = stackTraceResponse.body.stackFrames[0];
 
-            if (stackTraceResponse.body.stackFrames[0].line == lbp.NumLine
-                && stackTraceResponse.body.stackFrames[0].source.name == lbp.FileName
-                && stackTraceResponse.body.stackFrames[0].column == expectedColumn)
-                return;
-
-            throw new ResultNotSuccessException(@"__FILE__:__LINE__"+"\n"+caller_trace);
+            Assert.Equal(lbp.NumLine, stackFrame.line, @"__FILE__:__LINE__"+"\n"+caller_trace);
+            Assert.Equal(lbp.FileName, stackFrame.source.name, @"__FILE__:__LINE__"+"\n"+caller_trace);
+            Assert.Equal(expectedColumn, stackFrame.column, @"__FILE__:__LINE__"+"\n"+caller_trace);
         }
 
         public void WasBreakpointHitAtColumn(string caller_trace, string bpName, int expectedColumn, int expectedEndColumn)
@@ -303,14 +299,12 @@ namespace NetcoreDbgTest.Script
 
             StackTraceResponse stackTraceResponse =
                 JsonConvert.DeserializeObject<StackTraceResponse>(ret.ResponseStr);
+            var stackFrame = stackTraceResponse.body.stackFrames[0];
 
-            if (stackTraceResponse.body.stackFrames[0].line == lbp.NumLine
-                && stackTraceResponse.body.stackFrames[0].source.name == lbp.FileName
-                && stackTraceResponse.body.stackFrames[0].column == expectedColumn
-                && stackTraceResponse.body.stackFrames[0].endColumn == expectedEndColumn)
-                return;
-
-            throw new ResultNotSuccessException(@"__FILE__:__LINE__"+"\n"+caller_trace);
+            Assert.Equal(lbp.NumLine, stackFrame.line, @"__FILE__:__LINE__"+"\n"+caller_trace);
+            Assert.Equal(lbp.FileName, stackFrame.source.name, @"__FILE__:__LINE__"+"\n"+caller_trace);
+            Assert.Equal(expectedColumn, stackFrame.column, @"__FILE__:__LINE__"+"\n"+caller_trace);
+            Assert.Equal(expectedEndColumn, stackFrame.endColumn, @"__FILE__:__LINE__"+"\n"+caller_trace);
         }
 
         public void AddManualBreakpoint(string caller_trace, string bp_fileName, int bp_line, int? Column = null)
@@ -715,12 +709,12 @@ Label.Breakpoint("bp20_2");            numbers.ForEach(delegate(string number) {
                 Context.AddManualBreakpoint(@"__FILE__:__LINE__", "Program.cs", endLine - 1, Column: 5);
 
                 // Multiple breakpoints on the same line coalesce to a single BP at the start of the line, max 1 breakpoint-per line rule
-                Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_multi_order_A", Column: 0);
+                Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_multi_order_A");
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_multi_order_A", Column: 17);
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_multi_order_A", Column: 23);
 
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_multi_order_B", Column: 17);
-                Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_multi_order_B", Column: 0);
+                Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_multi_order_B");
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_multi_order_B", Column: 23);
 
                 Context.SetBreakpoints(@"__FILE__:__LINE__");
