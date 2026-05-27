@@ -91,6 +91,79 @@ static std::string Trim(const std::string &s)
     return s.substr(begin, end - begin);
 }
 
+static bool IsDebuggerDisplayIdentifier(const std::string &s)
+{
+    if (s.empty())
+        return false;
+
+    size_t start = s[0] == '@' ? 1 : 0;
+    if (start == s.size())
+        return false;
+
+    unsigned char first = static_cast<unsigned char>(s[start]);
+    if (!std::isalpha(first) && s[start] != '_')
+        return false;
+
+    for (size_t i = start + 1; i < s.size(); ++i)
+    {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        if (!std::isalnum(c) && s[i] != '_')
+            return false;
+    }
+
+    return true;
+}
+
+static bool IsSimpleDebuggerDisplayExpression(const std::string &expression)
+{
+    if (expression == "this")
+        return true;
+
+    size_t begin = 0;
+    bool sawSegment = false;
+    while (begin < expression.size())
+    {
+        size_t end = expression.find('.', begin);
+        std::string segment = expression.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+        bool isLast = end == std::string::npos;
+
+        bool isCall = false;
+        if (segment.size() > 2 && segment.compare(segment.size() - 2, 2, "()") == 0)
+        {
+            if (!isLast)
+                return false;
+
+            isCall = true;
+            segment.resize(segment.size() - 2);
+        }
+
+        if (!IsDebuggerDisplayIdentifier(segment))
+            return false;
+
+        sawSegment = true;
+        if (isCall)
+            return true;
+
+        if (isLast)
+            break;
+
+        begin = end + 1;
+    }
+
+    return sawSegment;
+}
+
+static bool ShouldTryDebuggerDisplay(ICorDebugValue *pValue)
+{
+    CorElementType corElemType;
+    if (FAILED(pValue->GetType(&corElemType)))
+        return false;
+
+    return corElemType == ELEMENT_TYPE_CLASS ||
+           corElemType == ELEMENT_TYPE_OBJECT ||
+           corElemType == ELEMENT_TYPE_VALUETYPE;
+}
+
 static bool TryGetDebuggerDisplayValue(ICorDebugValue *pInputValue, std::string &displayTemplate)
 {
     BOOL isNull = TRUE;
@@ -130,7 +203,7 @@ static bool TryGetDebuggerDisplayValue(ICorDebugValue *pInputValue, std::string 
             FAILED(pMDUnknown->QueryInterface(IID_IMetaDataImport, (LPVOID*) &pMD)))
             return false;
 
-        if (GetAttributeStringArgument(pMD, typeDef, "System.Diagnostics.DebuggerDisplayAttribute..ctor", displayTemplate))
+        if (GetAttributeFixedStringArgument(pMD, typeDef, "System.Diagnostics.DebuggerDisplayAttribute..ctor", displayTemplate))
             return true;
 
         ToRelease<ICorDebugType> pBaseType;
@@ -157,10 +230,12 @@ static bool TryEvaluateDebuggerDisplayExpression(ICorDebugThread *pThread, Frame
     {
         std::string format = Trim(expression.substr(comma + 1));
         expression = Trim(expression.substr(0, comma));
-        noQuotes = format == "nq";
+        if (format != "nq")
+            return false;
+        noQuotes = true;
     }
 
-    if (expression.empty())
+    if (expression.empty() || !IsSimpleDebuggerDisplayExpression(expression))
         return false;
 
     std::string evalExpression;
@@ -241,6 +316,8 @@ static HRESULT PrintValueWithDebuggerDisplay(ICorDebugValue *pValue, ICorDebugTh
     IfFailRet(PrintValue(pValue, output));
 
     if (!pThread || receiverExpression.empty() || !pEvalStackMachine)
+        return S_OK;
+    if (!ShouldTryDebuggerDisplay(pValue))
         return S_OK;
 
     std::string displayTemplate;

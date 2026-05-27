@@ -90,7 +90,7 @@ static bool ReadCompressedUInt(const BYTE *&pData, const BYTE *pEnd, uint32_t &v
     return false;
 }
 
-static bool DecodeCustomAttributeStringArgument(const void *pBlob, ULONG cbSize, std::string &value)
+static bool DecodeCustomAttributeFixedStringArgument(const void *pBlob, ULONG cbSize, std::string &value)
 {
     const BYTE *pData = static_cast<const BYTE *>(pBlob);
     const BYTE *pEnd = pData + cbSize;
@@ -119,7 +119,7 @@ static bool DecodeCustomAttributeStringArgument(const void *pBlob, ULONG cbSize,
     return true;
 }
 
-bool GetAttributeStringArgument(IMetaDataImport *pMD, mdToken tok, const char *attrName, std::string &value)
+bool GetAttributeFixedStringArgument(IMetaDataImport *pMD, mdToken tok, const char *attrName, std::string &value)
 {
     ULONG numAttributes = 0;
     HCORENUM fEnum = NULL;
@@ -137,7 +137,7 @@ bool GetAttributeStringArgument(IMetaDataImport *pMD, mdToken tok, const char *a
         if (FAILED(TypePrinter::NameForToken(ptkType, pMD, mdName, true, nullptr)))
             continue;
 
-        if (mdName == attrName && DecodeCustomAttributeStringArgument(pBlob, cbSize, value))
+        if (mdName == attrName && DecodeCustomAttributeFixedStringArgument(pBlob, cbSize, value))
         {
             pMD->CloseEnum(fEnum);
             return true;
