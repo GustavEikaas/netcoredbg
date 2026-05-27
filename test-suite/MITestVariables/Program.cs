@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Diagnostics;
 using System.Threading;
+using System.Collections.Generic;
 
 using NetcoreDbgTest;
 using NetcoreDbgTest.MI;
@@ -529,6 +530,87 @@ namespace MITestVariables
         }
     }
 
+    [DebuggerDisplay("Id = {Id}")]
+    public class DebuggerDisplayFieldClass
+    {
+        public int Id = 101;
+    }
+
+    [DebuggerDisplay("Name = {Name}")]
+    public class DebuggerDisplayPropertyClass
+    {
+        public int Name
+        {
+            get
+            {
+                return 202;
+            }
+        }
+    }
+
+    [DebuggerDisplay("Text = {GetText()}")]
+    public class DebuggerDisplayMethodClass
+    {
+        public int GetText()
+        {
+            return 303;
+        }
+    }
+
+    [DebuggerDisplay("Id = {Id}, Name = {Name}, Text = {GetText()}")]
+    public class DebuggerDisplayMixedClass
+    {
+        public int Id = 404;
+
+        public int Name
+        {
+            get
+            {
+                return 505;
+            }
+        }
+
+        public int GetText()
+        {
+            return 606;
+        }
+    }
+
+    [DebuggerDisplay("Value = {Value}")]
+    public struct DebuggerDisplayStruct
+    {
+        public int Value;
+
+        public DebuggerDisplayStruct(int value)
+        {
+            Value = value;
+        }
+    }
+
+    [DebuggerDisplay("BaseId = {BaseId}")]
+    public class DebuggerDisplayBaseClass
+    {
+        public int BaseId = 808;
+    }
+
+    public class DebuggerDisplayInheritedClass : DebuggerDisplayBaseClass
+    {
+        public int ChildId = 909;
+    }
+
+    [DebuggerDisplay("Missing = {MissingMember}")]
+    public class DebuggerDisplayMissingMember
+    {
+        public int Id = 1001;
+    }
+
+    [DebuggerDisplay("Id = {Id}")]
+    public class DebuggerDisplayExpandableClass
+    {
+        public int Id = 1111;
+        public int Child = 2222;
+    }
+
     class Program
     {
         static void Main(string[] args)
@@ -548,6 +630,7 @@ namespace MITestVariables
                 Context.EnableBreakpoint(@"__FILE__:__LINE__", "BREAK5");
                 Context.EnableBreakpoint(@"__FILE__:__LINE__", "BREAK6");
                 Context.EnableBreakpoint(@"__FILE__:__LINE__", "BREAK7");
+                Context.EnableBreakpoint(@"__FILE__:__LINE__", "BREAK_DEBUGGER_DISPLAY");
                 Context.EnableBreakpoint(@"__FILE__:__LINE__", "BREAK_GETTER");
                 Context.EnableBreakpoint(@"__FILE__:__LINE__", "bp_func1");
                 Context.EnableBreakpoint(@"__FILE__:__LINE__", "bp_func2");
@@ -1250,7 +1333,7 @@ namespace MITestVariables
 
             int dummy7 = 7;                                     Label.Breakpoint("BREAK7");
 
-            Label.Checkpoint("test_eval_with_exception", "finish", (Object context) => {
+            Label.Checkpoint("test_eval_with_exception", "test_debugger_display", (Object context) => {
                 Context Context = (Context)context;
                 Context.WasBreakpointHit(@"__FILE__:__LINE__", "BREAK7");
 
@@ -1258,6 +1341,42 @@ namespace MITestVariables
                 Context.GetAndCheckChildValue(@"__FILE__:__LINE__", "777", "ts7", 1, false, 0);
                 Context.GetAndCheckChildValue(@"__FILE__:__LINE__", "{System.DivideByZeroException}", "ts7", 2, false, 0);
                 Context.GetAndCheckChildValue(@"__FILE__:__LINE__", "\\\"text_567\\\"", "ts7", 3, false, 0);
+
+                Context.Continue(@"__FILE__:__LINE__");
+            });
+
+            DebuggerDisplayFieldClass ddField = new DebuggerDisplayFieldClass();
+            DebuggerDisplayPropertyClass ddProperty = new DebuggerDisplayPropertyClass();
+            DebuggerDisplayMethodClass ddMethod = new DebuggerDisplayMethodClass();
+            DebuggerDisplayMixedClass ddMixed = new DebuggerDisplayMixedClass();
+            DebuggerDisplayStruct ddStruct = new DebuggerDisplayStruct(707);
+            DebuggerDisplayInheritedClass ddInherited = new DebuggerDisplayInheritedClass();
+            DebuggerDisplayMissingMember ddMissing = new DebuggerDisplayMissingMember();
+            DebuggerDisplayExpandableClass ddExpandable = new DebuggerDisplayExpandableClass();
+            List<int> ddList = new List<int> { 1, 2, 3 };
+            Dictionary<string, int> ddDictionary = new Dictionary<string, int> {
+                { "one", 1 },
+                { "two", 2 },
+            };
+
+            int dummyDebuggerDisplay = 8;                        Label.Breakpoint("BREAK_DEBUGGER_DISPLAY");
+
+            Label.Checkpoint("test_debugger_display", "finish", (Object context) => {
+                Context Context = (Context)context;
+                Context.WasBreakpointHit(@"__FILE__:__LINE__", "BREAK_DEBUGGER_DISPLAY");
+
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "ddField", "Id = 101");
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "ddProperty", "Name = 202");
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "ddMethod", "Text = 303");
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "ddMixed", "Id = 404, Name = 505, Text = 606");
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "ddStruct", "Value = 707");
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "ddInherited", "BaseId = 808");
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "ddMissing", "{MITestVariables.DebuggerDisplayMissingMember}");
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "ddList", "Count = 3");
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "ddDictionary", "Count = 2");
+
+                Context.GetAndCheckChildValue(@"__FILE__:__LINE__", "1111", "ddExpandable", 0, false, 0);
+                Context.GetAndCheckChildValue(@"__FILE__:__LINE__", "2222", "ddExpandable", 1, false, 0);
 
                 Context.Continue(@"__FILE__:__LINE__");
             });
