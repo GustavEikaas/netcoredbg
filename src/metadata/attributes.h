@@ -22,5 +22,6 @@ struct DebuggerAttribute
 
 bool HasAttribute(IMetaDataImport *pMD, mdToken tok, const char *attrName);
 bool HasAttribute(IMetaDataImport *pMD, mdToken tok, std::vector<std::string> &attrNames);
+bool GetAttributeStringArgument(IMetaDataImport *pMD, mdToken tok, const char *attrName, std::string &value);
 
 } // namespace netcoredbg
