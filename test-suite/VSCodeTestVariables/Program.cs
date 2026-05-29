@@ -415,6 +415,15 @@ namespace VSCodeTestVariables
         }
     }
 
+    public class TestPrimaryConstructorVariables(string primaryText, TestImplicitCast1 primaryObject)
+    {
+        public void BreakInInstanceMethod()
+        {
+            int local = primaryText.Length + primaryObject.data;
+            local++;                                            Label.Breakpoint("bp_primary_ctor");
+        }
+    }
+
     public struct TestImplicitCast3
     {
         private float data;
@@ -640,6 +649,7 @@ namespace VSCodeTestVariables
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp5");
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_func1");
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_func2");
+                Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_primary_ctor");
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_getter");
                 Context.SetBreakpoints(@"__FILE__:__LINE__");
                 Context.PrepareEnd(@"__FILE__:__LINE__");
@@ -1293,6 +1303,24 @@ namespace VSCodeTestVariables
 
             TestFunctionArgs(10, 5f, "test_string");
 
+            new TestPrimaryConstructorVariables("primary text", new TestImplicitCast1(321)).BreakInInstanceMethod();
+
+            Label.Checkpoint("test_primary_constructor", "test_debugger_browsable_state", (Object context) => {
+                Context Context = (Context)context;
+                Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_primary_ctor");
+                Int64 frameId = Context.DetectFrameId(@"__FILE__:__LINE__", "bp_primary_ctor");
+                int variablesReference = Context.GetVariablesReference(@"__FILE__:__LINE__", frameId, "Locals");
+
+                Context.EvalVariable(@"__FILE__:__LINE__", variablesReference, "string", "primaryText", "\"primary text\"");
+                Context.GetAndCheckValue(@"__FILE__:__LINE__", frameId, "primaryText", "\"primary text\"");
+                Context.GetAndCheckValue(@"__FILE__:__LINE__", frameId, "primaryObject.data", "321");
+
+                int primaryObjectReference = Context.GetChildVariablesReference(@"__FILE__:__LINE__", variablesReference, "primaryObject");
+                Context.EvalVariable(@"__FILE__:__LINE__", primaryObjectReference, "int", "data", "321");
+
+                Context.Continue(@"__FILE__:__LINE__");
+            });
+
             TestStruct4 ts4 = new TestStruct4();
 
             int i = 0;
@@ -1432,7 +1460,7 @@ namespace VSCodeTestVariables
 
             dummy1 = 2;                                         Label.Breakpoint("bp_func2");
 
-            Label.Checkpoint("bp_func_test2", "test_debugger_browsable_state", (Object context) => {
+            Label.Checkpoint("bp_func_test2", "test_primary_constructor", (Object context) => {
                 Context Context = (Context)context;
                 Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_func2");
                 Int64 frameId = Context.DetectFrameId(@"__FILE__:__LINE__", "bp_func2");

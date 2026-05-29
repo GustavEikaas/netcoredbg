@@ -324,6 +324,15 @@ namespace MITestVariables
         }
     }
 
+    public class TestPrimaryConstructorVariables(string primaryText, TestImplicitCast1 primaryObject)
+    {
+        public void BreakInInstanceMethod()
+        {
+            int local = primaryText.Length + primaryObject.data;
+            local++;                                            Label.Breakpoint("bp_primary_ctor");
+        }
+    }
+
     public struct TestImplicitCast3
     {
         private float data;
@@ -551,6 +560,7 @@ namespace MITestVariables
                 Context.EnableBreakpoint(@"__FILE__:__LINE__", "BREAK_GETTER");
                 Context.EnableBreakpoint(@"__FILE__:__LINE__", "bp_func1");
                 Context.EnableBreakpoint(@"__FILE__:__LINE__", "bp_func2");
+                Context.EnableBreakpoint(@"__FILE__:__LINE__", "bp_primary_ctor");
 
                 Context.Continue(@"__FILE__:__LINE__");
             });
@@ -1176,6 +1186,18 @@ namespace MITestVariables
 
             TestFunctionArgs(10, 5f, "test_string");
 
+            new TestPrimaryConstructorVariables("primary text", new TestImplicitCast1(321)).BreakInInstanceMethod();
+
+            Label.Checkpoint("test_primary_constructor", "test_eval_flags", (Object context) => {
+                Context Context = (Context)context;
+                Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_primary_ctor");
+
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "primaryText", "\\\"primary text\\\"");
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "primaryObject.data", "321");
+
+                Context.Continue(@"__FILE__:__LINE__");
+            });
+
             TestStruct3 ts3 = new TestStruct3();
 
             int dummy3 = 3;                                     Label.Breakpoint("BREAK3");
@@ -1290,7 +1312,7 @@ namespace MITestVariables
 
             dummy1 = 2;                                         Label.Breakpoint("bp_func2");
 
-            Label.Checkpoint("bp_func_test2", "test_eval_flags", (Object context) => {
+            Label.Checkpoint("bp_func_test2", "test_primary_constructor", (Object context) => {
                 Context Context = (Context)context;
                 Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_func2");
 

@@ -1035,7 +1035,8 @@ enum class GeneratedNameKind
     None,
     ThisProxyField,
     HoistedLocalField,
-    DisplayClassLocalOrField
+    DisplayClassLocalOrField,
+    PrimaryConstructorParameterField
 };
 
 static GeneratedNameKind GetLocalOrFieldNameKind(const WSTRING &localOrFieldName)
@@ -1047,10 +1048,11 @@ static GeneratedNameKind GetLocalOrFieldNameKind(const WSTRING &localOrFieldName
     //  and where c is a single character in [1-9a-z]
     //  (csharp\LanguageAnalysis\LIB\SpecialName.cpp).
 
-    // https://github.com/dotnet/roslyn/blob/d1e617ded188343ba43d24590802dd51e68e8e32/src/Compilers/CSharp/Portable/Symbols/Synthesized/GeneratedNameKind.cs#L13-L20
+    // https://github.com/dotnet/roslyn/blob/f7c7a5972ea0c8c645ddef58ec00a0e03136fd70/src/Compilers/CSharp/Portable/Symbols/Synthesized/GeneratedNameKind.cs#L13-L20
     //  ThisProxyField = '4',
     //  HoistedLocalField = '5',
     //  DisplayClassLocalOrField = '8',
+    //  PrimaryConstructorParameter = 'P',
 
     if (localOrFieldName.find(W(">4")) != WSTRING::npos)
         return GeneratedNameKind::ThisProxyField;
@@ -1058,6 +1060,11 @@ static GeneratedNameKind GetLocalOrFieldNameKind(const WSTRING &localOrFieldName
         return GeneratedNameKind::HoistedLocalField;
     else if (localOrFieldName.find(W(">8")) != WSTRING::npos)
         return GeneratedNameKind::DisplayClassLocalOrField;
+    else if (localOrFieldName.length() > 3 &&
+             localOrFieldName[localOrFieldName.length() - 2] == W('>') &&
+             localOrFieldName[localOrFieldName.length() - 1] == W('P') &&
+             starts_with(localOrFieldName.data(), W("<")))
+        return GeneratedNameKind::PrimaryConstructorParameterField;
 
     return GeneratedNameKind::None;
 }
@@ -1119,6 +1126,25 @@ static HRESULT FindThisProxyFieldValue(IMetaDataImport *pMD, ICorDebugClass *pCl
     });
 
     return Status == E_ABORT ? S_OK : Status;
+}
+
+static HRESULT GetUserCodeEnclosingTypeDef(IMetaDataImport *pMD, mdTypeDef typeDef, mdTypeDef &userTypeDef)
+{
+    HRESULT Status;
+
+    do {
+        ULONG nameLen;
+        WCHAR mdName[mdNameLen];
+        IfFailRet(pMD->GetTypeDefProps(typeDef, mdName, _countof(mdName), &nameLen, NULL, NULL));
+
+        if (!IsSynthesizedLocalName(mdName, nameLen))
+        {
+            userTypeDef = typeDef;
+            return S_OK;
+        }
+
+        IfFailRet(pMD->GetNestedClassProps(typeDef, &typeDef));
+    } while(1);
 }
 
 // Note, this method return Class name, not Type name (will not provide generic initialization types if any).
@@ -1248,6 +1274,61 @@ static HRESULT TryParseHoistedLocalName(const WSTRING &mdName, WSTRING &wLocalNa
         return E_FAIL;
 
     wLocalName = mdName.substr(nameStartOffset, closeBracketOffset - nameStartOffset);
+    return S_OK;
+}
+
+static HRESULT TryParsePrimaryConstructorParameterName(const WSTRING &mdName, WSTRING &wParameterName)
+{
+    if (GetLocalOrFieldNameKind(mdName) != GeneratedNameKind::PrimaryConstructorParameterField)
+        return E_FAIL;
+
+    wParameterName = mdName.substr(1, mdName.length() - 3);
+    return wParameterName.empty() ? E_FAIL : S_OK;
+}
+
+static HRESULT WalkPrimaryConstructorParameterFields(IMetaDataImport *pMD, ICorDebugClass *pClass, mdTypeDef currentTypeDef,
+                                                    ICorDebugValue *pInputValue, std::unordered_set<WSTRING> &usedNames,
+                                                    Evaluator::WalkStackVarsCallback cb)
+{
+    HRESULT Status;
+    BOOL isNull = FALSE;
+    ToRelease<ICorDebugValue> pValue;
+    IfFailRet(DereferenceAndUnboxValue(pInputValue, &pValue, &isNull));
+    if (isNull == TRUE)
+        return S_OK;
+
+    IfFailRet(ForEachFields(pMD, currentTypeDef, [&](mdFieldDef fieldDef) -> HRESULT
+    {
+        WCHAR mdName[mdNameLen] = {0};
+        ULONG nameLen = 0;
+        DWORD fieldAttr = 0;
+        if (FAILED(pMD->GetFieldProps(fieldDef, nullptr, mdName, _countof(mdName), &nameLen, &fieldAttr, NULL, NULL, NULL, NULL, NULL)))
+            return S_OK;
+
+        if ((fieldAttr & fdStatic) != 0 || (fieldAttr & fdLiteral) != 0)
+            return S_OK;
+
+        WSTRING wParameterName;
+        if (FAILED(TryParsePrimaryConstructorParameterName(mdName, wParameterName)) ||
+            usedNames.find(wParameterName) != usedNames.end())
+            return S_OK;
+
+        auto getValue = [&](ICorDebugValue **ppResultValue, int) -> HRESULT
+        {
+            pValue.Free();
+            IfFailRet(DereferenceAndUnboxValue(pInputValue, &pValue, &isNull));
+            ToRelease<ICorDebugObjectValue> pObjValue;
+            IfFailRet(pValue->QueryInterface(IID_ICorDebugObjectValue, (LPVOID*) &pObjValue));
+            IfFailRet(pObjValue->GetFieldValue(pClass, fieldDef, ppResultValue));
+            return S_OK;
+        };
+
+        IfFailRet(cb(to_utf8(wParameterName.data()), getValue));
+        usedNames.insert(wParameterName);
+
+        return S_OK;
+    }));
+
     return S_OK;
 }
 
@@ -1413,6 +1494,9 @@ static HRESULT InternalWalkStackVars(Modules *pModules, ICorDebugThread *pThread
 
     GeneratedCodeKind generatedCodeKind = GeneratedCodeKind::Normal;
     ToRelease<ICorDebugValue> currentThis; // Current This. Note, in case async method or lambda - this is special object (not user's "this").
+    ToRelease<ICorDebugValue> userThis;
+    ToRelease<ICorDebugClass> userThisClass;
+    mdTypeDef userThisTypeDef = mdTypeDefNil;
     // In case this is static method, this is not async/lambda case for sure.
     if ((methodAttr & mdStatic) == 0)
     {
@@ -1423,16 +1507,23 @@ static HRESULT InternalWalkStackVars(Modules *pModules, ICorDebugThread *pThread
         IfFailRet(GetGeneratedCodeKind(pMD, szMethod, typeDef, generatedCodeKind));
         IfFailRet(pILFrame->GetArgument(0, &currentThis));
 
-        ToRelease<ICorDebugValue> userThis;
         if (generatedCodeKind == GeneratedCodeKind::Normal)
         {
             currentThis->AddRef();
             userThis = currentThis.GetPtr();
+            pClass->AddRef();
+            userThisClass = pClass.GetPtr();
+            userThisTypeDef = typeDef;
         }
         else
         {
             // Check do we have real This value (that should be stored in ThisProxyField).
             IfFailRet(FindThisProxyFieldValue(pMD, pClass, typeDef, currentThis, &userThis));
+            if (userThis)
+            {
+                IfFailRet(GetUserCodeEnclosingTypeDef(pMD, typeDef, userThisTypeDef));
+                IfFailRet(pModule->GetClassFromToken(userThisTypeDef, &userThisClass));
+            }
         }
 
         if (userThis)
@@ -1526,6 +1617,9 @@ static HRESULT InternalWalkStackVars(Modules *pModules, ICorDebugThread *pThread
         pFrame.Free();
         pILFrame.Free();
     }
+
+    if (userThis && userThisClass && TypeFromToken(userThisTypeDef) == mdtTypeDef)
+        IfFailRet(WalkPrimaryConstructorParameterFields(pMD, userThisClass, userThisTypeDef, userThis, usedNames, cb));
 
     if (generatedCodeKind != GeneratedCodeKind::Normal)
         return WalkGeneratedClassFields(pMD, currentThis, currentIlOffset, usedNames, methodDef, methodVersion, pModules, pModule, cb);
@@ -2002,4 +2096,3 @@ HRESULT Evaluator::LookupExtensionMethods(ICorDebugType *pType,
 }
 
 } // namespace netcoredbg
-
