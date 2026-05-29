@@ -114,7 +114,11 @@ static bool IsDebuggerDisplayIdentifier(const std::string &s)
     return true;
 }
 
-static bool IsSimpleDebuggerDisplayExpression(const std::string &expression)
+// DebuggerDisplay v1 intentionally supports only simple instance-member placeholders:
+//   {Field}, {Property}, {Method()}, {Nested.Member}, {this.Member}
+// plus the ",nq" string-display modifier handled below. Richer C# expressions
+// need expression-aware receiver rewriting before they can be safely enabled.
+static bool IsSupportedDebuggerDisplayExpression(const std::string &expression)
 {
     if (expression == "this")
         return true;
@@ -350,7 +354,7 @@ static bool TryEvaluateDebuggerDisplayExpression(ICorDebugThread *pThread, Frame
         noQuotes = true;
     }
 
-    if (expression.empty() || !IsSimpleDebuggerDisplayExpression(expression))
+    if (expression.empty() || !IsSupportedDebuggerDisplayExpression(expression))
         return false;
 
     std::string evalExpression;
