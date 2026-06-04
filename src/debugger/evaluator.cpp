@@ -1370,8 +1370,7 @@ static HRESULT WalkGeneratedClassFields(IMetaDataImport *pMD, ICorDebugValue *pI
         if (FAILED(pMD->GetFieldProps(fieldDef, nullptr, mdName, _countof(mdName), &nameLen, &fieldAttr, NULL, NULL, NULL, NULL, NULL)))
             return S_OK; // Return with success to continue walk.
 
-        if ((fieldAttr & fdStatic) != 0 || (fieldAttr & fdLiteral) != 0 ||
-            usedNames.find(mdName) != usedNames.end())
+        if ((fieldAttr & fdStatic) != 0 || (fieldAttr & fdLiteral) != 0)
             return S_OK; // Return with success to continue walk.
 
         auto getValue = [&](ICorDebugValue **ppResultValue, int) -> HRESULT
@@ -1417,11 +1416,15 @@ static HRESULT WalkGeneratedClassFields(IMetaDataImport *pMD, ICorDebugValue *pI
             if (FAILED(TryParseHoistedLocalName(mdName, wLocalName)))
                 return S_OK; // Return with success to continue walk.
 
+            if (usedNames.find(wLocalName) != usedNames.end())
+                return S_OK; // Return with success to continue walk.
+
             IfFailRet(cb(to_utf8(wLocalName.data()), getValue));
             usedNames.insert(wLocalName);
         }
         // Ignore any other compiler generated fields, show only normal fields.
-        else if (!IsSynthesizedLocalName(mdName, nameLen))
+        else if (!IsSynthesizedLocalName(mdName, nameLen) &&
+                 usedNames.find(mdName) == usedNames.end())
         {
             IfFailRet(cb(to_utf8(mdName), getValue));
             usedNames.insert(mdName);
@@ -1618,11 +1621,11 @@ static HRESULT InternalWalkStackVars(Modules *pModules, ICorDebugThread *pThread
         pILFrame.Free();
     }
 
+    if (generatedCodeKind != GeneratedCodeKind::Normal)
+        IfFailRet(WalkGeneratedClassFields(pMD, currentThis, currentIlOffset, usedNames, methodDef, methodVersion, pModules, pModule, cb));
+
     if (userThis && userThisClass && TypeFromToken(userThisTypeDef) == mdtTypeDef)
         IfFailRet(WalkPrimaryConstructorParameterFields(pMD, userThisClass, userThisTypeDef, userThis, usedNames, cb));
-
-    if (generatedCodeKind != GeneratedCodeKind::Normal)
-        return WalkGeneratedClassFields(pMD, currentThis, currentIlOffset, usedNames, methodDef, methodVersion, pModules, pModule, cb);
 
     return S_OK;
 }

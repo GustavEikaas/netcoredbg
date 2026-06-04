@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Diagnostics;
 using System.Threading;
+using System.Threading.Tasks;
 
 using NetcoreDbgTest;
 using NetcoreDbgTest.MI;
@@ -332,6 +333,38 @@ namespace MITestVariables
             int local = primaryText.Length + primaryObject.data;
             local++;                                            Label.Breakpoint("bp_primary_ctor");
         }
+
+        public void BreakWithLocalShadow()
+        {
+            string primaryText = "local shadow";
+            int local = primaryText.Length + primaryObject.data;
+            local++;                                            Label.Breakpoint("bp_primary_ctor_local_shadow");
+        }
+
+        public void BreakWithArgumentShadow(string primaryText)
+        {
+            int local = primaryText.Length + primaryObject.data;
+            local++;                                            Label.Breakpoint("bp_primary_ctor_arg_shadow");
+        }
+
+        public void BreakWithLambdaShadow()
+        {
+            string primaryText = "lambda shadow";
+            Func<int> getLength = () => {
+                int local = primaryText.Length + primaryObject.data;
+                local++;                                        Label.Breakpoint("bp_primary_ctor_lambda_shadow");
+                return local;
+            };
+            int local = getLength();
+        }
+
+        public async Task BreakWithAsyncShadow()
+        {
+            string primaryText = "async shadow";
+            await Task.Yield();
+            int local = primaryText.Length + primaryObject.data;
+            local++;                                            Label.Breakpoint("bp_primary_ctor_async_shadow");
+        }
     }
 #endif
 
@@ -564,6 +597,10 @@ namespace MITestVariables
                 Context.EnableBreakpoint(@"__FILE__:__LINE__", "bp_func2");
 #if NET8_0_OR_GREATER
                 Context.EnableBreakpoint(@"__FILE__:__LINE__", "bp_primary_ctor");
+                Context.EnableBreakpoint(@"__FILE__:__LINE__", "bp_primary_ctor_local_shadow");
+                Context.EnableBreakpoint(@"__FILE__:__LINE__", "bp_primary_ctor_arg_shadow");
+                Context.EnableBreakpoint(@"__FILE__:__LINE__", "bp_primary_ctor_lambda_shadow");
+                Context.EnableBreakpoint(@"__FILE__:__LINE__", "bp_primary_ctor_async_shadow");
 #endif
 
                 Context.Continue(@"__FILE__:__LINE__");
@@ -1191,13 +1228,58 @@ namespace MITestVariables
             TestFunctionArgs(10, 5f, "test_string");
 
 #if NET8_0_OR_GREATER
-            new TestPrimaryConstructorVariables("primary text", new TestImplicitCast1(321)).BreakInInstanceMethod();
+            var primaryConstructorVariables = new TestPrimaryConstructorVariables("primary text", new TestImplicitCast1(321));
+            primaryConstructorVariables.BreakInInstanceMethod();
+            primaryConstructorVariables.BreakWithLocalShadow();
+            primaryConstructorVariables.BreakWithArgumentShadow("argument shadow");
+            primaryConstructorVariables.BreakWithLambdaShadow();
+            primaryConstructorVariables.BreakWithAsyncShadow().GetAwaiter().GetResult();
 
-            Label.Checkpoint("test_primary_constructor", "test_eval_flags", (Object context) => {
+            Label.Checkpoint("test_primary_constructor", "test_primary_constructor_local_shadow", (Object context) => {
                 Context Context = (Context)context;
                 Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_primary_ctor");
 
                 Context.CreateAndCompareVar(@"__FILE__:__LINE__", "primaryText", "\\\"primary text\\\"");
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "primaryObject.data", "321");
+
+                Context.Continue(@"__FILE__:__LINE__");
+            });
+
+            Label.Checkpoint("test_primary_constructor_local_shadow", "test_primary_constructor_arg_shadow", (Object context) => {
+                Context Context = (Context)context;
+                Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_primary_ctor_local_shadow");
+
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "primaryText", "\\\"local shadow\\\"");
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "primaryObject.data", "321");
+
+                Context.Continue(@"__FILE__:__LINE__");
+            });
+
+            Label.Checkpoint("test_primary_constructor_arg_shadow", "test_primary_constructor_lambda_shadow", (Object context) => {
+                Context Context = (Context)context;
+                Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_primary_ctor_arg_shadow");
+
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "primaryText", "\\\"argument shadow\\\"");
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "primaryObject.data", "321");
+
+                Context.Continue(@"__FILE__:__LINE__");
+            });
+
+            Label.Checkpoint("test_primary_constructor_lambda_shadow", "test_primary_constructor_async_shadow", (Object context) => {
+                Context Context = (Context)context;
+                Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_primary_ctor_lambda_shadow");
+
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "primaryText", "\\\"lambda shadow\\\"");
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "primaryObject.data", "321");
+
+                Context.Continue(@"__FILE__:__LINE__");
+            });
+
+            Label.Checkpoint("test_primary_constructor_async_shadow", "test_eval_flags", (Object context) => {
+                Context Context = (Context)context;
+                Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_primary_ctor_async_shadow");
+
+                Context.CreateAndCompareVar(@"__FILE__:__LINE__", "primaryText", "\\\"async shadow\\\"");
                 Context.CreateAndCompareVar(@"__FILE__:__LINE__", "primaryObject.data", "321");
 
                 Context.Continue(@"__FILE__:__LINE__");

@@ -3,6 +3,7 @@ using System.IO;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using System.Threading.Tasks;
 
 using NetcoreDbgTest;
 using NetcoreDbgTest.VSCode;
@@ -289,6 +290,25 @@ namespace NetcoreDbgTest.Script
             throw new ResultNotSuccessException(@"__FILE__:__LINE__"+"\n"+caller_trace);
         }
 
+        public void CheckVariableNameCount(string caller_trace, int variablesReference, string Name, int ExpectedCount)
+        {
+            VariablesRequest variablesRequest = new VariablesRequest();
+            variablesRequest.arguments.variablesReference = variablesReference;
+            var ret = VSCodeDebugger.Request(variablesRequest);
+            Assert.True(ret.Success, @"__FILE__:__LINE__"+"\n"+caller_trace);
+
+            VariablesResponse variablesResponse =
+                JsonConvert.DeserializeObject<VariablesResponse>(ret.ResponseStr);
+
+            int count = 0;
+            foreach (var Variable in variablesResponse.body.variables) {
+                if (Variable.name == Name)
+                    count++;
+            }
+
+            Assert.Equal(ExpectedCount, count, @"__FILE__:__LINE__"+"\n"+caller_trace);
+        }
+
         public void EvalVariableByIndex(string caller_trace, int variablesReference, string Type, int Index, string Value)
         {
             VariablesRequest variablesRequest = new VariablesRequest();
@@ -422,6 +442,38 @@ namespace VSCodeTestVariables
         {
             int local = primaryText.Length + primaryObject.data;
             local++;                                            Label.Breakpoint("bp_primary_ctor");
+        }
+
+        public void BreakWithLocalShadow()
+        {
+            string primaryText = "local shadow";
+            int local = primaryText.Length + primaryObject.data;
+            local++;                                            Label.Breakpoint("bp_primary_ctor_local_shadow");
+        }
+
+        public void BreakWithArgumentShadow(string primaryText)
+        {
+            int local = primaryText.Length + primaryObject.data;
+            local++;                                            Label.Breakpoint("bp_primary_ctor_arg_shadow");
+        }
+
+        public void BreakWithLambdaShadow()
+        {
+            string primaryText = "lambda shadow";
+            Func<int> getLength = () => {
+                int local = primaryText.Length + primaryObject.data;
+                local++;                                        Label.Breakpoint("bp_primary_ctor_lambda_shadow");
+                return local;
+            };
+            int local = getLength();
+        }
+
+        public async Task BreakWithAsyncShadow()
+        {
+            string primaryText = "async shadow";
+            await Task.Yield();
+            int local = primaryText.Length + primaryObject.data;
+            local++;                                            Label.Breakpoint("bp_primary_ctor_async_shadow");
         }
     }
 #endif
@@ -653,6 +705,10 @@ namespace VSCodeTestVariables
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_func2");
 #if NET8_0_OR_GREATER
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_primary_ctor");
+                Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_primary_ctor_local_shadow");
+                Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_primary_ctor_arg_shadow");
+                Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_primary_ctor_lambda_shadow");
+                Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_primary_ctor_async_shadow");
 #endif
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_getter");
                 Context.SetBreakpoints(@"__FILE__:__LINE__");
@@ -1308,20 +1364,82 @@ namespace VSCodeTestVariables
             TestFunctionArgs(10, 5f, "test_string");
 
 #if NET8_0_OR_GREATER
-            new TestPrimaryConstructorVariables("primary text", new TestImplicitCast1(321)).BreakInInstanceMethod();
+            var primaryConstructorVariables = new TestPrimaryConstructorVariables("primary text", new TestImplicitCast1(321));
+            primaryConstructorVariables.BreakInInstanceMethod();
+            primaryConstructorVariables.BreakWithLocalShadow();
+            primaryConstructorVariables.BreakWithArgumentShadow("argument shadow");
+            primaryConstructorVariables.BreakWithLambdaShadow();
+            primaryConstructorVariables.BreakWithAsyncShadow().GetAwaiter().GetResult();
 
-            Label.Checkpoint("test_primary_constructor", "test_debugger_browsable_state", (Object context) => {
+            Label.Checkpoint("test_primary_constructor", "test_primary_constructor_local_shadow", (Object context) => {
                 Context Context = (Context)context;
                 Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_primary_ctor");
                 Int64 frameId = Context.DetectFrameId(@"__FILE__:__LINE__", "bp_primary_ctor");
                 int variablesReference = Context.GetVariablesReference(@"__FILE__:__LINE__", frameId, "Locals");
 
+                Context.CheckVariableNameCount(@"__FILE__:__LINE__", variablesReference, "primaryText", 1);
                 Context.EvalVariable(@"__FILE__:__LINE__", variablesReference, "string", "primaryText", "\"primary text\"");
                 Context.GetAndCheckValue(@"__FILE__:__LINE__", frameId, "primaryText", "\"primary text\"");
                 Context.GetAndCheckValue(@"__FILE__:__LINE__", frameId, "primaryObject.data", "321");
 
                 int primaryObjectReference = Context.GetChildVariablesReference(@"__FILE__:__LINE__", variablesReference, "primaryObject");
                 Context.EvalVariable(@"__FILE__:__LINE__", primaryObjectReference, "int", "data", "321");
+
+                Context.Continue(@"__FILE__:__LINE__");
+            });
+
+            Label.Checkpoint("test_primary_constructor_local_shadow", "test_primary_constructor_arg_shadow", (Object context) => {
+                Context Context = (Context)context;
+                Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_primary_ctor_local_shadow");
+                Int64 frameId = Context.DetectFrameId(@"__FILE__:__LINE__", "bp_primary_ctor_local_shadow");
+                int variablesReference = Context.GetVariablesReference(@"__FILE__:__LINE__", frameId, "Locals");
+
+                Context.CheckVariableNameCount(@"__FILE__:__LINE__", variablesReference, "primaryText", 1);
+                Context.EvalVariable(@"__FILE__:__LINE__", variablesReference, "string", "primaryText", "\"local shadow\"");
+                Context.GetAndCheckValue(@"__FILE__:__LINE__", frameId, "primaryText", "\"local shadow\"");
+                Context.GetAndCheckValue(@"__FILE__:__LINE__", frameId, "primaryObject.data", "321");
+
+                Context.Continue(@"__FILE__:__LINE__");
+            });
+
+            Label.Checkpoint("test_primary_constructor_arg_shadow", "test_primary_constructor_lambda_shadow", (Object context) => {
+                Context Context = (Context)context;
+                Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_primary_ctor_arg_shadow");
+                Int64 frameId = Context.DetectFrameId(@"__FILE__:__LINE__", "bp_primary_ctor_arg_shadow");
+                int variablesReference = Context.GetVariablesReference(@"__FILE__:__LINE__", frameId, "Locals");
+
+                Context.CheckVariableNameCount(@"__FILE__:__LINE__", variablesReference, "primaryText", 1);
+                Context.EvalVariable(@"__FILE__:__LINE__", variablesReference, "string", "primaryText", "\"argument shadow\"");
+                Context.GetAndCheckValue(@"__FILE__:__LINE__", frameId, "primaryText", "\"argument shadow\"");
+                Context.GetAndCheckValue(@"__FILE__:__LINE__", frameId, "primaryObject.data", "321");
+
+                Context.Continue(@"__FILE__:__LINE__");
+            });
+
+            Label.Checkpoint("test_primary_constructor_lambda_shadow", "test_primary_constructor_async_shadow", (Object context) => {
+                Context Context = (Context)context;
+                Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_primary_ctor_lambda_shadow");
+                Int64 frameId = Context.DetectFrameId(@"__FILE__:__LINE__", "bp_primary_ctor_lambda_shadow");
+                int variablesReference = Context.GetVariablesReference(@"__FILE__:__LINE__", frameId, "Locals");
+
+                Context.CheckVariableNameCount(@"__FILE__:__LINE__", variablesReference, "primaryText", 1);
+                Context.EvalVariable(@"__FILE__:__LINE__", variablesReference, "string", "primaryText", "\"lambda shadow\"");
+                Context.GetAndCheckValue(@"__FILE__:__LINE__", frameId, "primaryText", "\"lambda shadow\"");
+                Context.GetAndCheckValue(@"__FILE__:__LINE__", frameId, "primaryObject.data", "321");
+
+                Context.Continue(@"__FILE__:__LINE__");
+            });
+
+            Label.Checkpoint("test_primary_constructor_async_shadow", "test_debugger_browsable_state", (Object context) => {
+                Context Context = (Context)context;
+                Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_primary_ctor_async_shadow");
+                Int64 frameId = Context.DetectFrameId(@"__FILE__:__LINE__", "bp_primary_ctor_async_shadow");
+                int variablesReference = Context.GetVariablesReference(@"__FILE__:__LINE__", frameId, "Locals");
+
+                Context.CheckVariableNameCount(@"__FILE__:__LINE__", variablesReference, "primaryText", 1);
+                Context.EvalVariable(@"__FILE__:__LINE__", variablesReference, "string", "primaryText", "\"async shadow\"");
+                Context.GetAndCheckValue(@"__FILE__:__LINE__", frameId, "primaryText", "\"async shadow\"");
+                Context.GetAndCheckValue(@"__FILE__:__LINE__", frameId, "primaryObject.data", "321");
 
                 Context.Continue(@"__FILE__:__LINE__");
             });
