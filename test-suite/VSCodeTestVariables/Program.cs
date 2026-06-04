@@ -415,6 +415,7 @@ namespace VSCodeTestVariables
         }
     }
 
+#if NET8_0_OR_GREATER
     public class TestPrimaryConstructorVariables(string primaryText, TestImplicitCast1 primaryObject)
     {
         public void BreakInInstanceMethod()
@@ -423,6 +424,7 @@ namespace VSCodeTestVariables
             local++;                                            Label.Breakpoint("bp_primary_ctor");
         }
     }
+#endif
 
     public struct TestImplicitCast3
     {
@@ -649,7 +651,9 @@ namespace VSCodeTestVariables
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp5");
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_func1");
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_func2");
+#if NET8_0_OR_GREATER
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_primary_ctor");
+#endif
                 Context.AddBreakpoint(@"__FILE__:__LINE__", "bp_getter");
                 Context.SetBreakpoints(@"__FILE__:__LINE__");
                 Context.PrepareEnd(@"__FILE__:__LINE__");
@@ -1303,6 +1307,7 @@ namespace VSCodeTestVariables
 
             TestFunctionArgs(10, 5f, "test_string");
 
+#if NET8_0_OR_GREATER
             new TestPrimaryConstructorVariables("primary text", new TestImplicitCast1(321)).BreakInInstanceMethod();
 
             Label.Checkpoint("test_primary_constructor", "test_debugger_browsable_state", (Object context) => {
@@ -1320,6 +1325,7 @@ namespace VSCodeTestVariables
 
                 Context.Continue(@"__FILE__:__LINE__");
             });
+#endif
 
             TestStruct4 ts4 = new TestStruct4();
 
@@ -1460,7 +1466,11 @@ namespace VSCodeTestVariables
 
             dummy1 = 2;                                         Label.Breakpoint("bp_func2");
 
+#if NET8_0_OR_GREATER
             Label.Checkpoint("bp_func_test2", "test_primary_constructor", (Object context) => {
+#else
+            Label.Checkpoint("bp_func_test2", "test_debugger_browsable_state", (Object context) => {
+#endif
                 Context Context = (Context)context;
                 Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_func2");
                 Int64 frameId = Context.DetectFrameId(@"__FILE__:__LINE__", "bp_func2");

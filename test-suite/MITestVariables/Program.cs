@@ -324,6 +324,7 @@ namespace MITestVariables
         }
     }
 
+#if NET8_0_OR_GREATER
     public class TestPrimaryConstructorVariables(string primaryText, TestImplicitCast1 primaryObject)
     {
         public void BreakInInstanceMethod()
@@ -332,6 +333,7 @@ namespace MITestVariables
             local++;                                            Label.Breakpoint("bp_primary_ctor");
         }
     }
+#endif
 
     public struct TestImplicitCast3
     {
@@ -560,7 +562,9 @@ namespace MITestVariables
                 Context.EnableBreakpoint(@"__FILE__:__LINE__", "BREAK_GETTER");
                 Context.EnableBreakpoint(@"__FILE__:__LINE__", "bp_func1");
                 Context.EnableBreakpoint(@"__FILE__:__LINE__", "bp_func2");
+#if NET8_0_OR_GREATER
                 Context.EnableBreakpoint(@"__FILE__:__LINE__", "bp_primary_ctor");
+#endif
 
                 Context.Continue(@"__FILE__:__LINE__");
             });
@@ -1186,6 +1190,7 @@ namespace MITestVariables
 
             TestFunctionArgs(10, 5f, "test_string");
 
+#if NET8_0_OR_GREATER
             new TestPrimaryConstructorVariables("primary text", new TestImplicitCast1(321)).BreakInInstanceMethod();
 
             Label.Checkpoint("test_primary_constructor", "test_eval_flags", (Object context) => {
@@ -1197,6 +1202,7 @@ namespace MITestVariables
 
                 Context.Continue(@"__FILE__:__LINE__");
             });
+#endif
 
             TestStruct3 ts3 = new TestStruct3();
 
@@ -1312,7 +1318,11 @@ namespace MITestVariables
 
             dummy1 = 2;                                         Label.Breakpoint("bp_func2");
 
+#if NET8_0_OR_GREATER
             Label.Checkpoint("bp_func_test2", "test_primary_constructor", (Object context) => {
+#else
+            Label.Checkpoint("bp_func_test2", "test_eval_flags", (Object context) => {
+#endif
                 Context Context = (Context)context;
                 Context.WasBreakpointHit(@"__FILE__:__LINE__", "bp_func2");
 
